@@ -78,6 +78,10 @@ final class StatusBarController: NSObject {
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseDown, .rightMouseUp])
             button.imagePosition = .imageLeading
+            if let cell = button.cell as? NSButtonCell {
+                cell.highlightsBy = []
+                cell.showsStateBy = []
+            }
         }
 
         viewModel.onStatusBarNeedsUpdate = { [weak self] in
@@ -243,7 +247,6 @@ final class StatusBarController: NSObject {
 
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        button.highlight(true)
 
         installDismissMonitors()
 
@@ -283,7 +286,6 @@ final class StatusBarController: NSObject {
     private func closePanel() {
         guard panel.isVisible else { return }
         panel.orderOut(nil)
-        statusItem.button?.highlight(false)
         lockedCardOriginX = nil
         lockedPanelTopY = nil
         viewModel.showingSettings = false
