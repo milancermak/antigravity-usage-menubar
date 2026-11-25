@@ -127,33 +127,23 @@ struct PopoverContentView: View {
                     .opacity(0.4)
 
                 HStack {
-                    Text("Green buffer at reset")
-                        .font(.system(size: 12))
+                    HStack(spacing: 5) {
+                        Text("Safety margin")
+                            .font(.system(size: 12))
+                        InfoHoverBadge(marginPercent: Int(viewModel.settings.safetyMarginPercent))
+                    }
                     Spacer()
                     Stepper(
-                        "\(Int(viewModel.settings.greenHeadroomPercent))%",
-                        value: $viewModel.settings.greenHeadroomPercent,
+                        "\(Int(viewModel.settings.safetyMarginPercent))%",
+                        value: $viewModel.settings.safetyMarginPercent,
                         in: 5...40,
                         step: 5
                     )
                     .font(.system(size: 12).monospacedDigit())
                     .controlSize(.small)
                 }
-
-                HStack {
-                    Text("Red below")
-                        .font(.system(size: 12))
-                    Spacer()
-                    Stepper(
-                        "\(Int(viewModel.settings.redRemainingPercent))%",
-                        value: $viewModel.settings.redRemainingPercent,
-                        in: 5...30,
-                        step: 5
-                    )
-                    .font(.system(size: 12).monospacedDigit())
-                    .controlSize(.small)
-                }
             }
+            .zIndex(10)
 
             settingsSection("Refresh") {
                 HStack {
@@ -275,5 +265,55 @@ private struct SwiftUISegmentedControl<Option: Identifiable & Hashable>: View {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(Color.primary.opacity(0.07))
         )
+    }
+}
+
+private struct InfoHoverBadge: View {
+    let marginPercent: Int
+    @State private var isHovered = false
+
+    var body: some View {
+        Image(systemName: "info.circle")
+            .font(.system(size: 11.5))
+            .foregroundStyle(isHovered ? .primary : .secondary)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .overlay(alignment: .bottomLeading) {
+                if isHovered {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Projected quota left at reset:")
+                            .font(.system(size: 11, weight: .semibold))
+                        HStack(spacing: 5) {
+                            Circle().fill(Theme.color(for: .good)).frame(width: 6, height: 6)
+                            Text("≥ \(marginPercent)% left at reset")
+                        }
+                        HStack(spacing: 5) {
+                            Circle().fill(Theme.color(for: .caution)).frame(width: 6, height: 6)
+                            Text("0–\(marginPercent)% left at reset")
+                        }
+                        HStack(spacing: 5) {
+                            Circle().fill(Theme.color(for: .critical)).frame(width: 6, height: 6)
+                            Text("Hits 0% before reset")
+                        }
+                    }
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.primary)
+                    .padding(9)
+                    .frame(width: 215, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(.regularMaterial)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.18), lineWidth: 0.75)
+                    )
+                    .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
+                    .offset(x: -76, y: -22)
+                    .allowsHitTesting(false)
+                }
+            }
     }
 }

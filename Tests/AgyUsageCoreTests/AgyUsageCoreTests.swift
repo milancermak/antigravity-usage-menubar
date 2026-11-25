@@ -175,12 +175,31 @@ struct PaceCalculatorTests {
         #expect(!proj.willLastPastReset)
     }
 
-    @Test("Default settings use 1-minute poll interval and both windows")
+    @Test("Default settings use 1-minute poll interval, both windows, and 15% safety margin")
     func defaultSettings() {
         let settings = UsageSettings()
         #expect(settings.pollIntervalSeconds == 60)
         #expect(settings.menuBarDisplay == .both)
         #expect(settings.showPercentageLabel == true)
+        #expect(settings.safetyMarginPercent == 15.0)
+    }
+
+    @Test("Remaining above 0 with comfortable reset projection stays green even if low near reset")
+    func lowRemainingNearResetStillGreenWhenProjectedAboveMargin() {
+        let now = Date(timeIntervalSince1970: 1_795_595_000)
+        // 4h 55m elapsed, 5m remaining, 18% left -> est. at reset ~16.6% (>= 15% safety margin) -> green!
+        let reset = now.addingTimeInterval(5 * 60)
+        let reading = BucketReading(remainingFraction: 0.18, resetTime: reset)
+
+        let proj = PaceCalculator.project(
+            kind: .fiveHour,
+            reading: reading,
+            cycleSnapshots: [],
+            settings: UsageSettings(),
+            now: now
+        )
+
+        #expect(proj.status == .good)
     }
 
     @Test("Hover sampling interpolates history and projects future burn")

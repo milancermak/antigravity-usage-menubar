@@ -119,14 +119,11 @@ public enum PaceCalculator {
         elapsed: TimeInterval,
         settings: UsageSettings
     ) -> HealthStatus {
-        let redFloor = min(max(settings.redRemainingPercent / 100.0, 0.01), 0.5)
-        let amberFloor = min(max(redFloor + 0.10, 0.20), 0.6)
-        let greenMargin = min(max(settings.greenHeadroomPercent / 100.0, 0.01), 0.5)
-
+        let margin = min(max(settings.safetyMarginPercent / 100.0, 0.01), 0.5)
         let used = 1.0 - remaining
         let hasSignal = elapsed >= kind.minElapsedForProjection || used >= 0.05
 
-        if remaining <= redFloor {
+        if remaining <= 0.005 {
             return .critical
         }
 
@@ -134,11 +131,7 @@ public enum PaceCalculator {
             return .critical
         }
 
-        if remaining <= amberFloor {
-            return .caution
-        }
-
-        if hasSignal && projectedAtReset < greenMargin {
+        if hasSignal && projectedAtReset < margin {
             return .caution
         }
 
