@@ -63,9 +63,9 @@ final class StatusBarController: NSObject {
 
         super.init()
 
-        viewModel.onPopoverNeedsResize = { [weak self] in
+        viewModel.onPopoverHeightMeasured = { [weak self] measuredHeight in
             DispatchQueue.main.async { [weak self] in
-                self?.resizePanelKeepingTopAndHorizontalLocked()
+                self?.applyPanelHeight(measuredHeight)
             }
         }
 
@@ -208,10 +208,11 @@ final class StatusBarController: NSObject {
             observeStatusButtonWindow()
         }
 
-        hostingController.view.layoutSubtreeIfNeeded()
-        let contentSize = hostingController.view.fittingSize
-        let panelWidth = max(contentSize.width, PopoverMetrics.cardWidth + PopoverMetrics.horizontalShadowPad * 2)
-        let panelHeight = max(contentSize.height, 200)
+        let panelWidth = PopoverMetrics.panelWidth
+        let measured = hostingController.sizeThatFits(
+            in: CGSize(width: panelWidth, height: CGFloat.greatestFiniteMagnitude)
+        )
+        let panelHeight = ceil(max(measured.height, 200))
 
         let statusRect = statusWindow.frame
         let screenFrame = (statusWindow.screen ?? NSScreen.main)?.visibleFrame
@@ -235,7 +236,10 @@ final class StatusBarController: NSObject {
         )
         viewModel.popoverArrowX = arrowX
 
-        panel.setFrame(NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: panelHeight), display: true)
+        let frame = NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: panelHeight)
+        panel.setFrame(frame, display: true)
+        hostingController.view.frame = NSRect(origin: .zero, size: frame.size)
+
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         button.highlight(true)
@@ -244,27 +248,34 @@ final class StatusBarController: NSObject {
 
         DispatchQueue.main.async { [weak self] in
             self?.viewModel.refreshCountdowns()
-            self?.resizePanelKeepingTopAndHorizontalLocked()
+            self?.remeasureAndApplyPanelHeight()
         }
     }
 
-    private func resizePanelKeepingTopAndHorizontalLocked() {
+    private func remeasureAndApplyPanelHeight() {
+        guard panel.isVisible else { return }
+        let measured = hostingController.sizeThatFits(
+            in: CGSize(width: PopoverMetrics.panelWidth, height: CGFloat.greatestFiniteMagnitude)
+        )
+        applyPanelHeight(measured.height)
+    }
+
+    private func applyPanelHeight(_ rawHeight: CGFloat) {
         guard panel.isVisible,
               let cardOriginX = lockedCardOriginX,
               let panelTopY = lockedPanelTopY else {
             return
         }
 
-        hostingController.view.layoutSubtreeIfNeeded()
-        let size = hostingController.view.fittingSize
-        let panelWidth = max(size.width, PopoverMetrics.cardWidth + PopoverMetrics.horizontalShadowPad * 2)
-        let panelHeight = max(size.height, 200)
+        let panelWidth = PopoverMetrics.panelWidth
+        let panelHeight = ceil(max(rawHeight, 200))
         let panelOriginX = cardOriginX - PopoverMetrics.horizontalShadowPad
         let panelOriginY = panelTopY - panelHeight
 
         let newFrame = NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: panelHeight)
         if abs(panel.frame.height - newFrame.height) > 0.5 || abs(panel.frame.origin.y - newFrame.origin.y) > 0.5 {
             panel.setFrame(newFrame, display: true)
+            hostingController.view.frame = NSRect(origin: .zero, size: newFrame.size)
         }
     }
 

@@ -30,7 +30,7 @@ final class UsageViewModel {
     var popoverArrowX: CGFloat = 196
 
     @ObservationIgnored var onStatusBarNeedsUpdate: (() -> Void)?
-    @ObservationIgnored var onPopoverNeedsResize: (() -> Void)?
+    @ObservationIgnored var onPopoverHeightMeasured: ((CGFloat) -> Void)?
 
     @ObservationIgnored private let store: SnapshotStore
     @ObservationIgnored private let fetcher: QuotaFetching

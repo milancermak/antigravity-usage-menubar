@@ -8,8 +8,12 @@ enum PopoverMetrics {
     static let cornerRadius: CGFloat = 12
     static let horizontalShadowPad: CGFloat = 16
     static let bottomShadowPad: CGFloat = 20
-    static let topGap: CGFloat = 2
+    static let topGap: CGFloat = 0
     static let minArrowInset: CGFloat = 26
+
+    static var panelWidth: CGFloat {
+        cardWidth + horizontalShadowPad * 2
+    }
 }
 
 struct PopoverShellView: View {
@@ -28,31 +32,30 @@ struct PopoverShellView: View {
             .padding(.top, PopoverMetrics.arrowHeight)
             .frame(width: PopoverMetrics.cardWidth)
             .background(
-                VisualEffectBackground()
-                    .clipShape(shape)
+                VisualEffectBackground(shape: shape)
             )
             .overlay(
                 shape
-                    .stroke(Color.primary.opacity(0.16), lineWidth: 1.0)
+                    .stroke(Color.primary.opacity(0.18), lineWidth: 1.0)
             )
             .clipShape(shape)
-            .shadow(color: Color.black.opacity(0.28), radius: 12, x: 0, y: 6)
+            .shadow(color: Color.black.opacity(0.30), radius: 12, x: 0, y: 6)
             .padding(.horizontal, PopoverMetrics.horizontalShadowPad)
             .padding(.top, PopoverMetrics.topGap)
             .padding(.bottom, PopoverMetrics.bottomShadowPad)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear {
+                            viewModel.onPopoverHeightMeasured?(proxy.size.height)
+                        }
+                        .onChange(of: proxy.size.height) { _, newHeight in
+                            viewModel.onPopoverHeightMeasured?(newHeight)
+                        }
+                }
+            )
             .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: viewModel.popoverArrowX)
-            .onChange(of: viewModel.showingSettings) { _, _ in
-                viewModel.onPopoverNeedsResize?()
-            }
-            .onChange(of: viewModel.errorMessage) { _, _ in
-                viewModel.onPopoverNeedsResize?()
-            }
-            .onChange(of: viewModel.fiveHourProjection == nil) { _, _ in
-                viewModel.onPopoverNeedsResize?()
-            }
-            .onChange(of: viewModel.weeklyProjection == nil) { _, _ in
-                viewModel.onPopoverNeedsResize?()
-            }
     }
 }
 
@@ -83,7 +86,6 @@ struct PopoverShape: Shape {
         var p = Path()
         p.move(to: CGPoint(x: left + r, y: top))
 
-        // Top edge up to the arrow, then smooth macOS-style curved arrow peak.
         p.addLine(to: CGPoint(x: arrowLeft - 2, y: top))
         p.addQuadCurve(
             to: CGPoint(x: clampedCenter - tipRadius, y: rect.minY + tipRadius),
@@ -139,17 +141,47 @@ struct PopoverShape: Shape {
     }
 }
 
+private final class MaskedVisualEffectView: NSVisualEffectView {
+    var shape: PopoverShape? {
+        didSet { updateMask() }
+    }
+
+    override func layout() {
+        super.layout()
+        updateMask()
+    }
+
+    private func updateMask() {
+        guard let shape, bounds.width > 1, bounds.height > 1 else { return }
+        let size = bounds.size
+        let image = NSImage(size: size, flipped: true) { rect in
+            NSColor.black.setFill()
+            let cgPath = shape.path(in: rect).cgPath
+            if let ctx = NSGraphicsContext.current?.cgContext {
+                ctx.addPath(cgPath)
+                ctx.fillPath()
+            }
+            return true
+        }
+        maskImage = image
+    }
+}
+
 private struct VisualEffectBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
+    let shape: PopoverShape
+
+    func makeNSView(context: Context) -> MaskedVisualEffectView {
+        let view = MaskedVisualEffectView()
         view.material = .popover
         view.blendingMode = .behindWindow
         view.state = .active
+        view.shape = shape
         return view
     }
 
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+    func updateNSView(_ nsView: MaskedVisualEffectView, context: Context) {
         nsView.material = .popover
         nsView.state = .active
+        nsView.shape = shape
     }
 }
