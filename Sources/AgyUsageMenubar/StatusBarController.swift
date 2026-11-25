@@ -90,7 +90,8 @@ final class StatusBarController: NSObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.closePanel()
+                guard let self, !self.isMouseInsideStatusItem() else { return }
+                self.closePanel()
             }
         }
 
@@ -289,12 +290,22 @@ final class StatusBarController: NSObject {
         removeDismissMonitors()
     }
 
+    private func isMouseInsideStatusItem() -> Bool {
+        guard let statusWindow = statusItem.button?.window else { return false }
+        return statusWindow.frame.insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation)
+    }
+
     private func installDismissMonitors() {
         removeDismissMonitors()
 
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.closePanel()
+                guard let self else { return }
+                let mouse = NSEvent.mouseLocation
+                if self.isMouseInsideStatusItem() || self.panel.frame.contains(mouse) {
+                    return
+                }
+                self.closePanel()
             }
         }
 
