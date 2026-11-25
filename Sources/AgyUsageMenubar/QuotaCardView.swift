@@ -102,6 +102,7 @@ private struct QuotaChartView: View {
     let accent: Color
 
     @State private var hoveredDate: Date?
+    @State private var hoveredLocation: CGPoint?
 
     var body: some View {
         let hoverSample: (date: Date, remainingPercent: Double, isProjected: Bool)? = hoveredDate.map { date in
@@ -212,6 +213,7 @@ private struct QuotaChartView: View {
                             case .active(let location):
                                 guard let plotFrame = proxy.plotFrame else {
                                     hoveredDate = nil
+                                    hoveredLocation = nil
                                     return
                                 }
                                 let frame = geo[plotFrame]
@@ -219,11 +221,14 @@ private struct QuotaChartView: View {
                                 guard plotX >= 0, plotX <= frame.width,
                                       let date = proxy.value(atX: plotX, as: Date.self) else {
                                     hoveredDate = nil
+                                    hoveredLocation = nil
                                     return
                                 }
                                 hoveredDate = min(max(date, projection.cycleStart), projection.resetTime)
+                                hoveredLocation = location
                             case .ended:
                                 hoveredDate = nil
+                                hoveredLocation = nil
                             }
                         }
 
@@ -232,15 +237,22 @@ private struct QuotaChartView: View {
                        let anchorX = proxy.position(forX: hoverSample.date) {
                         let frame = geo[plotFrame]
                         let pillWidth: CGFloat = projection.kind == .weekly ? 116 : 86
+                        let pillHeight: CGFloat = 19
                         let rawX = frame.origin.x + anchorX - pillWidth / 2
                         let clampedX = min(max(rawX, frame.origin.x), frame.maxX - pillWidth)
+
+                        let cursorY = hoveredLocation?.y ?? frame.origin.y
+                        let preferredAboveY = cursorY - pillHeight - 10
+                        let rawY = preferredAboveY >= frame.origin.y ? preferredAboveY : cursorY + 12
+                        let clampedY = min(max(rawY, frame.origin.y), frame.maxY - pillHeight)
+
                         let pctText = "\(hoverSample.isProjected ? "~" : "")\(Int(hoverSample.remainingPercent.rounded()))%"
                         let timeText = UsageFormatters.resetTimestamp(hoverSample.date, kind: projection.kind)
 
                         Text("\(timeText) · \(pctText)")
                             .font(.system(size: 10, weight: .medium).monospacedDigit())
                             .foregroundStyle(.primary)
-                            .frame(width: pillWidth, height: 19)
+                            .frame(width: pillWidth, height: pillHeight)
                             .background(
                                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                                     .fill(.regularMaterial)
@@ -249,7 +261,7 @@ private struct QuotaChartView: View {
                                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                                     .strokeBorder(accent.opacity(0.45), lineWidth: 0.75)
                             )
-                            .offset(x: clampedX, y: 2)
+                            .offset(x: clampedX, y: clampedY)
                             .allowsHitTesting(false)
                     }
                 }
