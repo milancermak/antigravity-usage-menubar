@@ -2,8 +2,19 @@ import AgyUsageCore
 import AppKit
 import SwiftUI
 
+private final class StatusPanel: NSPanel {
+    var onEscape: (() -> Void)?
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func cancelOperation(_ sender: Any?) {
+        onEscape?()
+    }
+}
+
 @MainActor
-final class StatusBarController: NSObject, NSPopoverDelegate {
+final class StatusBarController: NSObject {
     private struct StatusSignature: Equatable {
         let display: MenuBarDisplay
         let showPercent: Bool
@@ -14,37 +25,73 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     private let statusItem: NSStatusItem
-    private let popover: NSPopover
+    private let panel: StatusPanel
+    private let hostingController: NSHostingController<PopoverShellView>
     private let viewModel: UsageViewModel
+
     private var lastSignature: StatusSignature?
-    private var lastButtonWindowFrame: NSRect = .zero
-    private var isReanchoring = false
+    private var lockedCardOriginX: CGFloat?
+    private var lockedPanelTopY: CGFloat?
     private var windowObservers: [NSObjectProtocol] = []
+    private var resignObserver: NSObjectProtocol?
+    private var globalClickMonitor: Any?
+    private var localKeyMonitor: Any?
 
     init(viewModel: UsageViewModel) {
         self.viewModel = viewModel
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        self.popover = NSPopover()
+
+        let panel = StatusPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 424, height: 420),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.level = .statusBar
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        self.panel = panel
+
+        let hosting = NSHostingController(rootView: PopoverShellView(viewModel: viewModel))
+        hosting.sizingOptions = []
+        self.hostingController = hosting
+        panel.contentViewController = hosting
 
         super.init()
 
-        popover.behavior = .transient
-        popover.animates = false
-        popover.delegate = self
+        viewModel.onPopoverNeedsResize = { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                self?.resizePanelKeepingTopAndHorizontalLocked()
+            }
+        }
 
-        let hosting = NSHostingController(rootView: PopoverContentView(viewModel: viewModel))
-        hosting.sizingOptions = .preferredContentSize
-        popover.contentViewController = hosting
+        panel.onEscape = { [weak self] in
+            self?.closePanel()
+        }
 
         if let button = statusItem.button {
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.sendAction(on: [.leftMouseDown, .rightMouseUp])
             button.imagePosition = .imageLeading
         }
 
         viewModel.onStatusBarNeedsUpdate = { [weak self] in
             self?.updateStatusItem()
+        }
+
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.closePanel()
+            }
         }
 
         updateStatusItem()
@@ -111,58 +158,153 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             observeStatusButtonWindow()
         }
 
-        if popover.isShown {
-            scheduleReanchorCheck()
-        }
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        if !isReanchoring {
-            viewModel.showingSettings = false
+        if panel.isVisible {
+            syncArrowToStatusItem()
+            DispatchQueue.main.async { [weak self] in
+                self?.syncArrowToStatusItem()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.syncArrowToStatusItem()
+            }
         }
     }
 
     private func observeStatusButtonWindow() {
         guard let window = statusItem.button?.window else { return }
-        lastButtonWindowFrame = window.frame
 
         let center = NotificationCenter.default
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
             let obs = center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.handleStatusWindowGeometryChange()
+                    self?.syncArrowToStatusItem()
                 }
             }
             windowObservers.append(obs)
         }
     }
 
-    private func handleStatusWindowGeometryChange() {
-        guard let window = statusItem.button?.window else { return }
-        let frame = window.frame
-        guard frame != lastButtonWindowFrame else { return }
-        lastButtonWindowFrame = frame
+    private func syncArrowToStatusItem() {
+        guard panel.isVisible,
+              let cardOriginX = lockedCardOriginX,
+              let statusWindow = statusItem.button?.window else {
+            return
+        }
 
-        if popover.isShown {
-            reanchorPopoverNow()
+        let targetX = statusWindow.frame.midX - cardOriginX
+        let minX = PopoverMetrics.minArrowInset
+        let maxX = PopoverMetrics.cardWidth - PopoverMetrics.minArrowInset
+        let clamped = min(max(targetX, minX), maxX)
+        if abs(viewModel.popoverArrowX - clamped) > 0.25 {
+            viewModel.popoverArrowX = clamped
         }
     }
 
-    private func scheduleReanchorCheck() {
-        // Fallback if AppKit adjusts the status bar frame slightly after attributedTitle updates.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
-            self?.handleStatusWindowGeometryChange()
+    private func openPanel() {
+        guard let button = statusItem.button, let statusWindow = button.window else { return }
+
+        viewModel.showingSettings = false
+
+        if windowObservers.isEmpty {
+            observeStatusButtonWindow()
+        }
+
+        hostingController.view.layoutSubtreeIfNeeded()
+        let contentSize = hostingController.view.fittingSize
+        let panelWidth = max(contentSize.width, PopoverMetrics.cardWidth + PopoverMetrics.horizontalShadowPad * 2)
+        let panelHeight = max(contentSize.height, 200)
+
+        let statusRect = statusWindow.frame
+        let screenFrame = (statusWindow.screen ?? NSScreen.main)?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+
+        let desiredCardOriginX = statusRect.midX - PopoverMetrics.cardWidth / 2
+        let minCardX = screenFrame.minX + 8
+        let maxCardX = screenFrame.maxX - PopoverMetrics.cardWidth - 8
+        let cardOriginX = min(max(desiredCardOriginX, minCardX), maxCardX)
+
+        let panelOriginX = cardOriginX - PopoverMetrics.horizontalShadowPad
+        let panelTopY = statusRect.minY
+        let panelOriginY = panelTopY - panelHeight
+
+        lockedCardOriginX = cardOriginX
+        lockedPanelTopY = panelTopY
+
+        let arrowX = min(
+            max(statusRect.midX - cardOriginX, PopoverMetrics.minArrowInset),
+            PopoverMetrics.cardWidth - PopoverMetrics.minArrowInset
+        )
+        viewModel.popoverArrowX = arrowX
+
+        panel.setFrame(NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: panelHeight), display: true)
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+        button.highlight(true)
+
+        installDismissMonitors()
+
+        DispatchQueue.main.async { [weak self] in
+            self?.viewModel.refreshCountdowns()
+            self?.resizePanelKeepingTopAndHorizontalLocked()
         }
     }
 
-    private func reanchorPopoverNow() {
-        guard popover.isShown, let button = statusItem.button, !isReanchoring else { return }
-        button.window?.layoutIfNeeded()
-        isReanchoring = true
-        popover.close()
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
-        isReanchoring = false
+    private func resizePanelKeepingTopAndHorizontalLocked() {
+        guard panel.isVisible,
+              let cardOriginX = lockedCardOriginX,
+              let panelTopY = lockedPanelTopY else {
+            return
+        }
+
+        hostingController.view.layoutSubtreeIfNeeded()
+        let size = hostingController.view.fittingSize
+        let panelWidth = max(size.width, PopoverMetrics.cardWidth + PopoverMetrics.horizontalShadowPad * 2)
+        let panelHeight = max(size.height, 200)
+        let panelOriginX = cardOriginX - PopoverMetrics.horizontalShadowPad
+        let panelOriginY = panelTopY - panelHeight
+
+        let newFrame = NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: panelHeight)
+        if abs(panel.frame.height - newFrame.height) > 0.5 || abs(panel.frame.origin.y - newFrame.origin.y) > 0.5 {
+            panel.setFrame(newFrame, display: true)
+        }
+    }
+
+    private func closePanel() {
+        guard panel.isVisible else { return }
+        panel.orderOut(nil)
+        statusItem.button?.highlight(false)
+        lockedCardOriginX = nil
+        lockedPanelTopY = nil
+        viewModel.showingSettings = false
+        removeDismissMonitors()
+    }
+
+    private func installDismissMonitors() {
+        removeDismissMonitors()
+
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.closePanel()
+            }
+        }
+
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 { // Escape
+                self?.closePanel()
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func removeDismissMonitors() {
+        if let globalClickMonitor {
+            NSEvent.removeMonitor(globalClickMonitor)
+            self.globalClickMonitor = nil
+        }
+        if let localKeyMonitor {
+            NSEvent.removeMonitor(localKeyMonitor)
+            self.localKeyMonitor = nil
+        }
     }
 
     private func makeFlameAttachment(status: HealthStatus) -> NSTextAttachment? {
@@ -203,35 +345,23 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     @objc private func handleStatusItemClick(_ sender: AnyObject?) {
         guard let event = NSApp.currentEvent else {
-            togglePopover()
+            togglePanel()
             return
         }
 
         if event.type == .rightMouseUp {
+            closePanel()
             showContextMenu()
         } else {
-            togglePopover()
+            togglePanel()
         }
     }
 
-    private func togglePopover() {
-        guard let button = statusItem.button else { return }
-        if popover.isShown {
-            popover.close()
+    private func togglePanel() {
+        if panel.isVisible {
+            closePanel()
         } else {
-            viewModel.showingSettings = false
-            NSApp.activate(ignoringOtherApps: true)
-            if windowObservers.isEmpty {
-                observeStatusButtonWindow()
-            }
-            if let window = button.window {
-                lastButtonWindowFrame = window.frame
-            }
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
-            DispatchQueue.main.async { [weak self] in
-                self?.viewModel.refreshCountdowns()
-            }
+            openPanel()
         }
     }
 

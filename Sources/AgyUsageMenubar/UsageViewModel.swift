@@ -27,8 +27,10 @@ final class UsageViewModel {
     var snapshotCount: Int = 0
     var launchAtLogin: Bool = false
     var showingSettings: Bool = false
+    var popoverArrowX: CGFloat = 196
 
     @ObservationIgnored var onStatusBarNeedsUpdate: (() -> Void)?
+    @ObservationIgnored var onPopoverNeedsResize: (() -> Void)?
 
     @ObservationIgnored private let store: SnapshotStore
     @ObservationIgnored private let fetcher: QuotaFetching
