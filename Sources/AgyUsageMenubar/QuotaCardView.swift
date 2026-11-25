@@ -242,8 +242,7 @@ private struct QuotaChartView: View {
                         let clampedX = min(max(rawX, frame.origin.x), frame.maxX - pillWidth)
 
                         let cursorY = hoveredLocation?.y ?? frame.origin.y
-                        let preferredAboveY = cursorY - pillHeight - 10
-                        let rawY = preferredAboveY >= frame.origin.y ? preferredAboveY : cursorY + 12
+                        let rawY = cursorY + 14
                         let clampedY = min(max(rawY, frame.origin.y), frame.maxY - pillHeight)
 
                         let pctText = "\(hoverSample.isProjected ? "~" : "")\(Int(hoverSample.remainingPercent.rounded()))%"
