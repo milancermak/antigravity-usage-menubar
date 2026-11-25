@@ -3,10 +3,23 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class StatusBarController: NSObject {
+final class StatusBarController: NSObject, NSPopoverDelegate {
+    private struct StatusSignature: Equatable {
+        let display: MenuBarDisplay
+        let showPercent: Bool
+        let fiveStatus: HealthStatus
+        let fivePct: Int?
+        let weekStatus: HealthStatus
+        let weekPct: Int?
+    }
+
     private let statusItem: NSStatusItem
     private let popover: NSPopover
     private let viewModel: UsageViewModel
+    private var lastSignature: StatusSignature?
+    private var lastButtonWindowFrame: NSRect = .zero
+    private var isReanchoring = false
+    private var windowObservers: [NSObjectProtocol] = []
 
     init(viewModel: UsageViewModel) {
         self.viewModel = viewModel
@@ -16,7 +29,9 @@ final class StatusBarController: NSObject {
         super.init()
 
         popover.behavior = .transient
-        popover.animates = true
+        popover.animates = false
+        popover.delegate = self
+
         let hosting = NSHostingController(rootView: PopoverContentView(viewModel: viewModel))
         hosting.sizingOptions = .preferredContentSize
         popover.contentViewController = hosting
@@ -33,12 +48,26 @@ final class StatusBarController: NSObject {
         }
 
         updateStatusItem()
+        observeStatusButtonWindow()
     }
 
     func updateStatusItem() {
         guard let button = statusItem.button else { return }
 
         let settings = viewModel.settings
+        let signature = StatusSignature(
+            display: settings.menuBarDisplay,
+            showPercent: settings.showPercentageLabel,
+            fiveStatus: viewModel.fiveHourProjection?.status ?? .unknown,
+            fivePct: viewModel.fiveHourProjection?.roundedRemainingPercent,
+            weekStatus: viewModel.weeklyProjection?.status ?? .unknown,
+            weekPct: viewModel.weeklyProjection?.roundedRemainingPercent
+        )
+
+        button.toolTip = buildTooltip()
+        guard signature != lastSignature else { return }
+        lastSignature = signature
+
         let items: [(WindowProjection?, QuotaWindowKind)] = settings.menuBarDisplay.windows.map { kind in
             let proj = kind == .fiveHour ? viewModel.fiveHourProjection : viewModel.weeklyProjection
             return (proj, kind)
@@ -77,20 +106,63 @@ final class StatusBarController: NSObject {
 
         button.attributedTitle = attributed
         button.image = nil
-        button.toolTip = buildTooltip()
 
-        // Re-anchor open popover after macOS recalculates the status item width.
-        if popover.isShown {
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.popover.isShown, let btn = self.statusItem.button else { return }
-                btn.window?.layoutIfNeeded()
-                let previousAnimates = self.popover.animates
-                self.popover.animates = false
-                self.popover.positioningRect = btn.bounds
-                self.popover.show(relativeTo: btn.bounds, of: btn, preferredEdge: .minY)
-                self.popover.animates = previousAnimates
-            }
+        if windowObservers.isEmpty {
+            observeStatusButtonWindow()
         }
+
+        if popover.isShown {
+            scheduleReanchorCheck()
+        }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        if !isReanchoring {
+            viewModel.showingSettings = false
+        }
+    }
+
+    private func observeStatusButtonWindow() {
+        guard let window = statusItem.button?.window else { return }
+        lastButtonWindowFrame = window.frame
+
+        let center = NotificationCenter.default
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            let obs = center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleStatusWindowGeometryChange()
+                }
+            }
+            windowObservers.append(obs)
+        }
+    }
+
+    private func handleStatusWindowGeometryChange() {
+        guard let window = statusItem.button?.window else { return }
+        let frame = window.frame
+        guard frame != lastButtonWindowFrame else { return }
+        lastButtonWindowFrame = frame
+
+        if popover.isShown {
+            reanchorPopoverNow()
+        }
+    }
+
+    private func scheduleReanchorCheck() {
+        // Fallback if AppKit adjusts the status bar frame slightly after attributedTitle updates.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
+            self?.handleStatusWindowGeometryChange()
+        }
+    }
+
+    private func reanchorPopoverNow() {
+        guard popover.isShown, let button = statusItem.button, !isReanchoring else { return }
+        button.window?.layoutIfNeeded()
+        isReanchoring = true
+        popover.close()
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
+        isReanchoring = false
     }
 
     private func makeFlameAttachment(status: HealthStatus) -> NSTextAttachment? {
@@ -118,10 +190,10 @@ final class StatusBarController: NSObject {
     private func buildTooltip() -> String {
         var lines: [String] = ["Gemini Quota"]
         if let five = viewModel.fiveHourProjection {
-            lines.append("5h: \(five.roundedRemainingPercent)% · \(UsageFormatters.verdict(for: five)) (resets in \(UsageFormatters.duration(five.timeUntilReset)))")
+            lines.append("5h: \(five.roundedRemainingPercent)% · \(UsageFormatters.resetEstimate(for: five)) (resets in \(UsageFormatters.duration(five.timeUntilReset)))")
         }
         if let week = viewModel.weeklyProjection {
-            lines.append("7d: \(week.roundedRemainingPercent)% · \(UsageFormatters.verdict(for: week)) (resets in \(UsageFormatters.duration(week.timeUntilReset)))")
+            lines.append("7d: \(week.roundedRemainingPercent)% · \(UsageFormatters.resetEstimate(for: week)) (resets in \(UsageFormatters.duration(week.timeUntilReset)))")
         }
         if let error = viewModel.errorMessage {
             lines.append("Error: \(error)")
@@ -145,12 +217,21 @@ final class StatusBarController: NSObject {
     private func togglePopover() {
         guard let button = statusItem.button else { return }
         if popover.isShown {
-            popover.performClose(nil)
+            popover.close()
         } else {
-            viewModel.refreshCountdowns()
+            viewModel.showingSettings = false
             NSApp.activate(ignoringOtherApps: true)
+            if windowObservers.isEmpty {
+                observeStatusButtonWindow()
+            }
+            if let window = button.window {
+                lastButtonWindowFrame = window.frame
+            }
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
+            DispatchQueue.main.async { [weak self] in
+                self?.viewModel.refreshCountdowns()
+            }
         }
     }
 

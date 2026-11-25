@@ -64,7 +64,7 @@ enum UsageFormatters {
         return formatter.string(from: date)
     }
 
-    static func verdict(for projection: WindowProjection) -> String {
+    static func resetEstimate(for projection: WindowProjection) -> String {
         if let depletion = projection.projectedDepletionTime {
             let untilDry = max(depletion.timeIntervalSince(projection.now), 0)
             switch projection.kind {
@@ -75,12 +75,8 @@ enum UsageFormatters {
             }
         }
 
-        if projection.burnRatePerSecond <= 1e-10 {
-            return "On track"
-        }
-
         let leftAtReset = max(Int((projection.projectedRemainingAtReset * 100.0).rounded()), 0)
-        return "~\(leftAtReset)% at reset"
+        return "Est. at reset: \(leftAtReset)%"
     }
 
     static func relativeUpdated(_ date: Date?, now: Date = Date()) -> String {

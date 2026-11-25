@@ -22,13 +22,8 @@ struct QuotaCardView: View {
 
                 Spacer()
 
-                Text(UsageFormatters.verdict(for: projection))
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(accent)
-
                 Text("\(projection.roundedRemainingPercent)%")
                     .font(.system(size: 15, weight: .bold).monospacedDigit())
-                    .frame(minWidth: 40, alignment: .trailing)
             }
 
             PaceBar(
@@ -40,16 +35,17 @@ struct QuotaCardView: View {
             QuotaChartView(projection: projection, accent: accent)
                 .frame(height: 82)
 
-            HStack {
+            HStack(spacing: 6) {
                 Text(UsageFormatters.axisStart(projection.cycleStart, kind: projection.kind))
-                    .font(.system(size: 10.5).monospacedDigit())
+                    .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.secondary)
 
-                Spacer()
+                Spacer(minLength: 4)
 
-                Text("Resets in \(UsageFormatters.duration(projection.timeUntilReset)) · \(UsageFormatters.resetTimestamp(projection.resetTime, kind: projection.kind))")
-                    .font(.system(size: 10.5).monospacedDigit())
+                Text(footerSummary)
+                    .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
         .padding(12)
@@ -61,6 +57,12 @@ struct QuotaCardView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
         )
+    }
+
+    private var footerSummary: String {
+        let reset = "Resets in \(UsageFormatters.duration(projection.timeUntilReset)) · \(UsageFormatters.resetTimestamp(projection.resetTime, kind: projection.kind))"
+        let estimate = UsageFormatters.resetEstimate(for: projection)
+        return "\(reset) · \(estimate)"
     }
 }
 

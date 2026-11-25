@@ -3,36 +3,32 @@ import SwiftUI
 
 struct PopoverContentView: View {
     @Bindable var viewModel: UsageViewModel
-    @State private var showingSettings = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 12) {
             header
 
-            if showingSettings {
+            if viewModel.showingSettings {
                 settingsBody
-                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .topTrailing)))
             } else {
                 overviewBody
-                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
             }
 
             footer
         }
         .padding(14)
-        .frame(width: 360)
-        .animation(reduceMotion ? nil : .spring(duration: 0.22, bounce: 0.0), value: showingSettings)
+        .frame(width: 392)
     }
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text(showingSettings ? "Settings" : "Gemini Quota")
+            Text(viewModel.showingSettings ? "Settings" : "Gemini Quota")
                 .font(.system(size: 14, weight: .semibold))
 
             Spacer()
 
-            if !showingSettings {
+            if !viewModel.showingSettings {
                 Button {
                     Task { await viewModel.refreshNow() }
                 } label: {
@@ -52,13 +48,13 @@ struct PopoverContentView: View {
             }
 
             Button {
-                showingSettings.toggle()
+                viewModel.showingSettings.toggle()
             } label: {
-                Image(systemName: showingSettings ? "xmark" : "gearshape")
+                Image(systemName: viewModel.showingSettings ? "xmark" : "gearshape")
                     .font(.system(size: 12.5, weight: .medium))
             }
             .buttonStyle(.borderless)
-            .help(showingSettings ? "Done" : "Settings")
+            .help(viewModel.showingSettings ? "Done" : "Settings")
         }
     }
 
@@ -111,30 +107,27 @@ struct PopoverContentView: View {
     }
 
     private var settingsBody: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            settingsSection("Menu Bar") {
-                Picker("Show", selection: $viewModel.settings.menuBarDisplay) {
-                    ForEach(MenuBarDisplay.allCases) { option in
-                        Text(option.label).tag(option)
-                    }
+        VStack(alignment: .leading, spacing: 12) {
+            settingsSection("Icons") {
+                HStack(spacing: 10) {
+                    Text("Show")
+                        .font(.system(size: 12))
+                    SwiftUISegmentedControl(
+                        options: MenuBarDisplay.allCases,
+                        selection: $viewModel.settings.menuBarDisplay,
+                        label: \.label
+                    )
                 }
-                .pickerStyle(.segmented)
 
                 Toggle("Show % remaining", isOn: $viewModel.settings.showPercentageLabel)
                     .toggleStyle(.switch)
                     .controlSize(.small)
-            }
 
-            settingsSection("Prediction") {
-                Picker("Pace", selection: $viewModel.settings.paceMethod) {
-                    ForEach(PaceMethod.allCases) { method in
-                        Text(method.label).tag(method)
-                    }
-                }
-                .pickerStyle(.segmented)
+                Divider()
+                    .opacity(0.4)
 
                 HStack {
-                    Text("Safe buffer")
+                    Text("Green buffer at reset")
                         .font(.system(size: 12))
                     Spacer()
                     Stepper(
@@ -248,5 +241,39 @@ struct PopoverContentView: View {
             .font(.system(size: 11.5))
             .foregroundStyle(.secondary)
         }
+    }
+}
+
+private struct SwiftUISegmentedControl<Option: Identifiable & Hashable>: View {
+    let options: [Option]
+    @Binding var selection: Option
+    let label: (Option) -> String
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options) { option in
+                let isSelected = option == selection
+                Button {
+                    selection = option
+                } label: {
+                    Text(label(option))
+                        .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(isSelected ? Color.primary.opacity(0.16) : Color.clear)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(0.07))
+        )
     }
 }

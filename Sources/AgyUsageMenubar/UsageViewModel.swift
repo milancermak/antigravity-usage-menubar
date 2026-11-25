@@ -26,6 +26,7 @@ final class UsageViewModel {
     var errorMessage: String?
     var snapshotCount: Int = 0
     var launchAtLogin: Bool = false
+    var showingSettings: Bool = false
 
     @ObservationIgnored var onStatusBarNeedsUpdate: (() -> Void)?
 
@@ -124,7 +125,6 @@ final class UsageViewModel {
 
     func refreshCountdowns() {
         recomputeProjections(now: Date())
-        onStatusBarNeedsUpdate?()
     }
 
     private func recomputeProjections(now: Date = Date()) {
