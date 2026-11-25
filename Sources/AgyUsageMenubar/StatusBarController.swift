@@ -34,6 +34,7 @@ final class StatusBarController: NSObject {
     private var lockedPanelTopY: CGFloat?
     private var windowObservers: [NSObjectProtocol] = []
     private var resignObserver: NSObjectProtocol?
+    private var statusClickMonitor: Any?
     private var globalClickMonitor: Any?
     private var localKeyMonitor: Any?
 
@@ -74,10 +75,31 @@ final class StatusBarController: NSObject {
         }
 
         if let button = statusItem.button {
-            button.target = self
-            button.action = #selector(handleStatusItemClick(_:))
-            button.sendAction(on: [.leftMouseDown, .rightMouseUp])
             button.imagePosition = .imageLeading
+        }
+
+        // Intercept clicks on the status bar button directly so AppKit's default
+        // mouseDown/mouseUp tracking doesn't clear button.highlight(true) on release.
+        statusClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self,
+                  let button = self.statusItem.button,
+                  let statusWindow = button.window,
+                  event.window == statusWindow else {
+                return event
+            }
+
+            if event.modifierFlags.contains(.command) {
+                return event
+            }
+
+            if event.type == .rightMouseDown || event.modifierFlags.contains(.control) {
+                self.closePanel()
+                self.showContextMenu()
+                return nil
+            }
+
+            self.togglePanel()
+            return nil
         }
 
         viewModel.onStatusBarNeedsUpdate = { [weak self] in
@@ -245,7 +267,6 @@ final class StatusBarController: NSObject {
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         button.highlight(true)
-        syncButtonHighlightAfterTracking()
 
         installDismissMonitors()
 
@@ -286,21 +307,10 @@ final class StatusBarController: NSObject {
         guard panel.isVisible else { return }
         panel.orderOut(nil)
         statusItem.button?.highlight(false)
-        syncButtonHighlightAfterTracking()
         lockedCardOriginX = nil
         lockedPanelTopY = nil
         viewModel.showingSettings = false
         removeDismissMonitors()
-    }
-
-    /// Re-applies the native status-bar highlight once AppKit exits mouse-tracking mode on mouseUp.
-    private func syncButtonHighlightAfterTracking() {
-        RunLoop.main.perform(inModes: [.default]) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.statusItem.button?.highlight(self.panel.isVisible)
-            }
-        }
     }
 
     private func isMouseInsideStatusItem() -> Bool {
@@ -376,20 +386,6 @@ final class StatusBarController: NSObject {
             lines.append("Error: \(error)")
         }
         return lines.joined(separator: "\n")
-    }
-
-    @objc private func handleStatusItemClick(_ sender: AnyObject?) {
-        guard let event = NSApp.currentEvent else {
-            togglePanel()
-            return
-        }
-
-        if event.type == .rightMouseUp {
-            closePanel()
-            showContextMenu()
-        } else {
-            togglePanel()
-        }
     }
 
     private func togglePanel() {
