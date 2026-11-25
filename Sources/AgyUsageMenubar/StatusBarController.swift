@@ -32,7 +32,6 @@ final class StatusBarController: NSObject {
     private var lastSignature: StatusSignature?
     private var lockedCardOriginX: CGFloat?
     private var lockedPanelTopY: CGFloat?
-    private var windowObservers: [NSObjectProtocol] = []
     private var resignObserver: NSObjectProtocol?
     private var statusClickMonitor: Any?
     private var globalClickMonitor: Any?
@@ -43,7 +42,7 @@ final class StatusBarController: NSObject {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         let panel = StatusPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 424, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: PopoverMetrics.panelWidth, height: 420),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -76,11 +75,15 @@ final class StatusBarController: NSObject {
 
         if let button = statusItem.button {
             button.imagePosition = .imageLeading
+            button.wantsLayer = true
+            button.layer?.masksToBounds = true
         }
 
-        // Intercept clicks on the status bar button directly so AppKit's default
-        // mouseDown/mouseUp tracking doesn't clear button.highlight(true) on release.
-        statusClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+        // Consume leftMouseDown, leftMouseUp, and rightMouseDown on our status item window
+        // so AppKit never flashes its own transient click highlight; preserve Cmd-drag reordering.
+        statusClickMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseUp, .rightMouseDown]
+        ) { [weak self] event in
             guard let self,
                   let button = self.statusItem.button,
                   let statusWindow = button.window,
@@ -90,6 +93,10 @@ final class StatusBarController: NSObject {
 
             if event.modifierFlags.contains(.command) {
                 return event
+            }
+
+            if event.type == .leftMouseUp {
+                return nil
             }
 
             if event.type == .rightMouseDown || event.modifierFlags.contains(.control) {
@@ -118,7 +125,6 @@ final class StatusBarController: NSObject {
         }
 
         updateStatusItem()
-        observeStatusButtonWindow()
     }
 
     func updateStatusItem() {
@@ -177,49 +183,27 @@ final class StatusBarController: NSObject {
         button.attributedTitle = attributed
         button.image = nil
 
-        if windowObservers.isEmpty {
-            observeStatusButtonWindow()
-        }
-
         if panel.isVisible {
-            button.highlight(true)
-            syncArrowToStatusItem()
-            DispatchQueue.main.async { [weak self] in
-                self?.syncArrowToStatusItem()
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                self?.syncArrowToStatusItem()
-            }
+            setMenuBarPillActive(true)
         }
     }
 
-    private func observeStatusButtonWindow() {
-        guard let window = statusItem.button?.window else { return }
+    private func setMenuBarPillActive(_ active: Bool) {
+        guard let button = statusItem.button else { return }
+        button.wantsLayer = true
+        guard let layer = button.layer else { return }
 
-        let center = NotificationCenter.default
-        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
-            let obs = center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.syncArrowToStatusItem()
-                }
-            }
-            windowObservers.append(obs)
-        }
-    }
+        layer.cornerRadius = button.bounds.height / 2
+        layer.masksToBounds = true
 
-    private func syncArrowToStatusItem() {
-        guard panel.isVisible,
-              let cardOriginX = lockedCardOriginX,
-              let statusWindow = statusItem.button?.window else {
-            return
-        }
-
-        let targetX = statusWindow.frame.midX - cardOriginX
-        let minX = PopoverMetrics.minArrowInset
-        let maxX = PopoverMetrics.cardWidth - PopoverMetrics.minArrowInset
-        let clamped = min(max(targetX, minX), maxX)
-        if abs(viewModel.popoverArrowX - clamped) > 0.25 {
-            viewModel.popoverArrowX = clamped
+        if active {
+            let isDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let pillColor = isDark
+                ? NSColor.white.withAlphaComponent(0.18)
+                : NSColor.black.withAlphaComponent(0.12)
+            layer.backgroundColor = pillColor.cgColor
+        } else {
+            layer.backgroundColor = NSColor.clear.cgColor
         }
     }
 
@@ -227,10 +211,6 @@ final class StatusBarController: NSObject {
         guard let button = statusItem.button, let statusWindow = button.window else { return }
 
         viewModel.showingSettings = false
-
-        if windowObservers.isEmpty {
-            observeStatusButtonWindow()
-        }
 
         let panelWidth = PopoverMetrics.panelWidth
         let measured = hostingController.sizeThatFits(
@@ -254,19 +234,13 @@ final class StatusBarController: NSObject {
         lockedCardOriginX = cardOriginX
         lockedPanelTopY = panelTopY
 
-        let arrowX = min(
-            max(statusRect.midX - cardOriginX, PopoverMetrics.minArrowInset),
-            PopoverMetrics.cardWidth - PopoverMetrics.minArrowInset
-        )
-        viewModel.popoverArrowX = arrowX
-
         let frame = NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: panelHeight)
         panel.setFrame(frame, display: true)
         hostingController.view.frame = NSRect(origin: .zero, size: frame.size)
 
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        button.highlight(true)
+        setMenuBarPillActive(true)
 
         installDismissMonitors()
 
@@ -306,7 +280,7 @@ final class StatusBarController: NSObject {
     private func closePanel() {
         guard panel.isVisible else { return }
         panel.orderOut(nil)
-        statusItem.button?.highlight(false)
+        setMenuBarPillActive(false)
         lockedCardOriginX = nil
         lockedPanelTopY = nil
         viewModel.showingSettings = false

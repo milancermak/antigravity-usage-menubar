@@ -27,7 +27,6 @@ final class UsageViewModel {
     var snapshotCount: Int = 0
     var launchAtLogin: Bool = false
     var showingSettings: Bool = false
-    var popoverArrowX: CGFloat = 196
 
     @ObservationIgnored var onStatusBarNeedsUpdate: (() -> Void)?
     @ObservationIgnored var onPopoverHeightMeasured: ((CGFloat) -> Void)?
