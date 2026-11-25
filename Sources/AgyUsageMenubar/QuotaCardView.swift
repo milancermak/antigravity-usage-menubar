@@ -38,7 +38,7 @@ struct QuotaCardView: View {
             )
 
             QuotaChartView(projection: projection, accent: accent)
-                .frame(height: 76)
+                .frame(height: 82)
 
             HStack {
                 Text(UsageFormatters.axisStart(projection.cycleStart, kind: projection.kind))
@@ -99,15 +99,21 @@ private struct QuotaChartView: View {
     let projection: WindowProjection
     let accent: Color
 
+    @State private var hoveredDate: Date?
+
     var body: some View {
+        let hoverSample: (date: Date, remainingPercent: Double, isProjected: Bool)? = hoveredDate.map { date in
+            let s = projection.sample(at: date)
+            return (date, s.remainingPercent, s.isProjected)
+        }
+
         Chart {
-            // Ideal linear pace line from 100% at cycle start to 0% at reset.
             LineMark(
                 x: .value("Time", projection.cycleStart),
                 y: .value("Remaining", 100.0),
                 series: .value("Series", "pace")
             )
-            .foregroundStyle(Color.secondary.opacity(0.4))
+            .foregroundStyle(Color.secondary.opacity(0.35))
             .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
 
             LineMark(
@@ -115,10 +121,9 @@ private struct QuotaChartView: View {
                 y: .value("Remaining", 0.0),
                 series: .value("Series", "pace")
             )
-            .foregroundStyle(Color.secondary.opacity(0.4))
+            .foregroundStyle(Color.secondary.opacity(0.35))
             .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
 
-            // Recorded remaining curve.
             ForEach(projection.historyPoints) { point in
                 AreaMark(
                     x: .value("Time", point.timestamp),
@@ -126,7 +131,7 @@ private struct QuotaChartView: View {
                 )
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [accent.opacity(0.22), accent.opacity(0.02)],
+                        colors: [accent.opacity(0.20), accent.opacity(0.02)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -141,7 +146,6 @@ private struct QuotaChartView: View {
                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             }
 
-            // Projected burn trajectory from now to depletion or reset.
             ForEach(projection.projectionPoints) { point in
                 LineMark(
                     x: .value("Time", point.timestamp),
@@ -153,7 +157,7 @@ private struct QuotaChartView: View {
             }
 
             RuleMark(x: .value("Now", projection.now))
-                .foregroundStyle(Color.primary.opacity(0.2))
+                .foregroundStyle(Color.primary.opacity(0.18))
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 2]))
 
             if let depletion = projection.projectedDepletionTime,
@@ -162,7 +166,20 @@ private struct QuotaChartView: View {
                     x: .value("Depletion", max(depletion, projection.now)),
                     y: .value("Zero", 0.0)
                 )
-                .symbolSize(26)
+                .symbolSize(24)
+                .foregroundStyle(accent)
+            }
+
+            if let hoverSample {
+                RuleMark(x: .value("Hover", hoverSample.date))
+                    .foregroundStyle(Color.primary.opacity(0.45))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+
+                PointMark(
+                    x: .value("HoverTime", hoverSample.date),
+                    y: .value("HoverPct", hoverSample.remainingPercent)
+                )
+                .symbolSize(34)
                 .foregroundStyle(accent)
             }
         }
@@ -183,5 +200,58 @@ private struct QuotaChartView: View {
             }
         }
         .chartLegend(.hidden)
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                ZStack(alignment: .topLeading) {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let location):
+                                guard let plotFrame = proxy.plotFrame else {
+                                    hoveredDate = nil
+                                    return
+                                }
+                                let frame = geo[plotFrame]
+                                let plotX = location.x - frame.origin.x
+                                guard plotX >= 0, plotX <= frame.width,
+                                      let date = proxy.value(atX: plotX, as: Date.self) else {
+                                    hoveredDate = nil
+                                    return
+                                }
+                                hoveredDate = min(max(date, projection.cycleStart), projection.resetTime)
+                            case .ended:
+                                hoveredDate = nil
+                            }
+                        }
+
+                    if let hoverSample,
+                       let plotFrame = proxy.plotFrame,
+                       let anchorX = proxy.position(forX: hoverSample.date) {
+                        let frame = geo[plotFrame]
+                        let pillWidth: CGFloat = projection.kind == .weekly ? 116 : 86
+                        let rawX = frame.origin.x + anchorX - pillWidth / 2
+                        let clampedX = min(max(rawX, frame.origin.x), frame.maxX - pillWidth)
+                        let pctText = "\(hoverSample.isProjected ? "~" : "")\(Int(hoverSample.remainingPercent.rounded()))%"
+                        let timeText = UsageFormatters.resetTimestamp(hoverSample.date, kind: projection.kind)
+
+                        Text("\(timeText) · \(pctText)")
+                            .font(.system(size: 10, weight: .medium).monospacedDigit())
+                            .foregroundStyle(.primary)
+                            .frame(width: pillWidth, height: 19)
+                            .background(
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .fill(.regularMaterial)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .strokeBorder(accent.opacity(0.45), lineWidth: 0.75)
+                            )
+                            .offset(x: clampedX, y: 2)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
+        }
     }
 }

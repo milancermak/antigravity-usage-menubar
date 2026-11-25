@@ -9,11 +9,11 @@ Native macOS menu bar app for tracking and projecting your Google Antigravity **
   - **Amber**: borderline pace or getting low
   - **Red**: on track to run dry before reset or critically low
 - **Configurable menu bar**:
-  - 1 fire (5-hour *or* weekly) or 2 fires (5-hour + weekly)
+  - Show **5 hours**, **7 days**, or **Both**
   - Optional `%` remaining label beside each flame
-- **Clean popover visualization**:
+- **Clean, interactive popover**:
   - Progress bars with a linear-pace marker
-  - Remaining-over-time charts plotted against the linear pace line and forward projection
+  - Hoverable remaining-over-time charts (scrub any past or future time to see actual/projected %)
   - Clear reset countdown and depletion/headroom forecast
 - **Automatic cleanup**:
   - Polls every 1 minute by default via the official `agy` CLI `statusLine` contract (no prompts sent, zero quota consumed)

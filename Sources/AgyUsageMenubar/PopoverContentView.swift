@@ -113,21 +113,12 @@ struct PopoverContentView: View {
     private var settingsBody: some View {
         VStack(alignment: .leading, spacing: 14) {
             settingsSection("Menu Bar") {
-                Picker("Icons", selection: $viewModel.settings.iconMode) {
-                    ForEach(MenuBarIconMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
+                Picker("Show", selection: $viewModel.settings.menuBarDisplay) {
+                    ForEach(MenuBarDisplay.allCases) { option in
+                        Text(option.label).tag(option)
                     }
                 }
                 .pickerStyle(.segmented)
-
-                if viewModel.settings.iconMode == .single {
-                    Picker("Window", selection: $viewModel.settings.singleIconWindow) {
-                        ForEach(QuotaWindowKind.allCases) { kind in
-                            Text(kind.title).tag(kind)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
 
                 Toggle("Show % remaining", isOn: $viewModel.settings.showPercentageLabel)
                     .toggleStyle(.switch)
@@ -143,7 +134,7 @@ struct PopoverContentView: View {
                 .pickerStyle(.segmented)
 
                 HStack {
-                    Text("Green headroom")
+                    Text("Safe buffer")
                         .font(.system(size: 12))
                     Spacer()
                     Stepper(
@@ -157,7 +148,7 @@ struct PopoverContentView: View {
                 }
 
                 HStack {
-                    Text("Red floor")
+                    Text("Red below")
                         .font(.system(size: 12))
                     Spacer()
                     Stepper(

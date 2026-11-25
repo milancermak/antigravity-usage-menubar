@@ -6,11 +6,14 @@ enum Theme {
     static func nsColor(for status: HealthStatus) -> NSColor {
         switch status {
         case .good:
-            return NSColor(srgbRed: 0.133, green: 0.773, blue: 0.369, alpha: 1.0)
+            // Muted sage green: calm in the menu bar without neon glare.
+            return NSColor(srgbRed: 0.29, green: 0.65, blue: 0.44, alpha: 1.0)
         case .caution:
-            return NSColor(srgbRed: 0.961, green: 0.620, blue: 0.043, alpha: 1.0)
+            // Warm muted amber.
+            return NSColor(srgbRed: 0.84, green: 0.62, blue: 0.26, alpha: 1.0)
         case .critical:
-            return NSColor(srgbRed: 0.937, green: 0.267, blue: 0.267, alpha: 1.0)
+            // Clear coral-red with controlled saturation.
+            return NSColor(srgbRed: 0.83, green: 0.36, blue: 0.35, alpha: 1.0)
         case .unknown:
             return NSColor.secondaryLabelColor
         }
@@ -76,8 +79,8 @@ enum UsageFormatters {
             return "On track"
         }
 
-        let headroom = max(Int((projection.projectedRemainingAtReset * 100.0).rounded()), 0)
-        return "+\(headroom)% at reset"
+        let leftAtReset = max(Int((projection.projectedRemainingAtReset * 100.0).rounded()), 0)
+        return "~\(leftAtReset)% at reset"
     }
 
     static func relativeUpdated(_ date: Date?, now: Date = Date()) -> String {

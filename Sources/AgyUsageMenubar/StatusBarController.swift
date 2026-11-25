@@ -7,7 +7,6 @@ final class StatusBarController: NSObject {
     private let statusItem: NSStatusItem
     private let popover: NSPopover
     private let viewModel: UsageViewModel
-    private var eventMonitor: Any?
 
     init(viewModel: UsageViewModel) {
         self.viewModel = viewModel
@@ -40,18 +39,9 @@ final class StatusBarController: NSObject {
         guard let button = statusItem.button else { return }
 
         let settings = viewModel.settings
-        let items: [(WindowProjection?, QuotaWindowKind)]
-        switch settings.iconMode {
-        case .single:
-            let proj = settings.singleIconWindow == .fiveHour
-                ? viewModel.fiveHourProjection
-                : viewModel.weeklyProjection
-            items = [(proj, settings.singleIconWindow)]
-        case .both:
-            items = [
-                (viewModel.fiveHourProjection, .fiveHour),
-                (viewModel.weeklyProjection, .weekly)
-            ]
+        let items: [(WindowProjection?, QuotaWindowKind)] = settings.menuBarDisplay.windows.map { kind in
+            let proj = kind == .fiveHour ? viewModel.fiveHourProjection : viewModel.weeklyProjection
+            return (proj, kind)
         }
 
         let attributed = NSMutableAttributedString()
@@ -88,6 +78,19 @@ final class StatusBarController: NSObject {
         button.attributedTitle = attributed
         button.image = nil
         button.toolTip = buildTooltip()
+
+        // Re-anchor open popover after macOS recalculates the status item width.
+        if popover.isShown {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.popover.isShown, let btn = self.statusItem.button else { return }
+                btn.window?.layoutIfNeeded()
+                let previousAnimates = self.popover.animates
+                self.popover.animates = false
+                self.popover.positioningRect = btn.bounds
+                self.popover.show(relativeTo: btn.bounds, of: btn, preferredEdge: .minY)
+                self.popover.animates = previousAnimates
+            }
+        }
     }
 
     private func makeFlameAttachment(status: HealthStatus) -> NSTextAttachment? {
@@ -99,7 +102,6 @@ final class StatusBarController: NSObject {
             return nil
         }
 
-        // Render into a non-template bitmap so macOS menu bar preserves green/amber/red color.
         let targetSize = symbol.size
         let colored = NSImage(size: targetSize, flipped: false) { rect in
             symbol.draw(in: rect)

@@ -107,16 +107,26 @@ public enum PaceMethod: String, Codable, CaseIterable, Sendable, Identifiable {
     }
 }
 
-public enum MenuBarIconMode: String, Codable, CaseIterable, Sendable, Identifiable {
-    case single = "single"
+public enum MenuBarDisplay: String, Codable, CaseIterable, Sendable, Identifiable {
+    case fiveHour = "5h"
+    case weekly = "7d"
     case both = "both"
 
     public var id: String { rawValue }
 
     public var label: String {
         switch self {
-        case .single: return "1 Fire"
-        case .both: return "2 Fires"
+        case .fiveHour: return "5 hours"
+        case .weekly: return "7 days"
+        case .both: return "Both"
+        }
+    }
+
+    public var windows: [QuotaWindowKind] {
+        switch self {
+        case .fiveHour: return [.fiveHour]
+        case .weekly: return [.weekly]
+        case .both: return [.fiveHour, .weekly]
         }
     }
 }
@@ -166,5 +176,35 @@ public struct WindowProjection: Equatable, Sendable {
     public var earlyDepletionLeadTime: TimeInterval? {
         guard let depletion = projectedDepletionTime else { return nil }
         return max(resetTime.timeIntervalSince(depletion), 0)
+    }
+
+    public func sample(at date: Date) -> (remainingPercent: Double, isProjected: Bool) {
+        let clamped = min(max(date, cycleStart), resetTime)
+        if clamped > now {
+            let dt = clamped.timeIntervalSince(now)
+            let projected = max(min((reading.remainingFraction - burnRatePerSecond * dt) * 100.0, 100.0), 0.0)
+            return (projected, true)
+        }
+
+        guard let first = historyPoints.first else {
+            return (remainingPercent, false)
+        }
+        if clamped <= first.timestamp {
+            return (first.remainingPercent, false)
+        }
+
+        for idx in 1..<historyPoints.count {
+            let prev = historyPoints[idx - 1]
+            let curr = historyPoints[idx]
+            if clamped <= curr.timestamp {
+                let span = curr.timestamp.timeIntervalSince(prev.timestamp)
+                guard span > 0 else { return (curr.remainingPercent, false) }
+                let t = clamped.timeIntervalSince(prev.timestamp) / span
+                let pct = prev.remainingPercent + (curr.remainingPercent - prev.remainingPercent) * t
+                return (min(max(pct, 0.0), 100.0), false)
+            }
+        }
+
+        return (historyPoints.last?.remainingPercent ?? remainingPercent, false)
     }
 }

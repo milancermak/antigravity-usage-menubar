@@ -1,8 +1,7 @@
 import Foundation
 
 public struct UsageSettings: Codable, Equatable, Sendable {
-    public var iconMode: MenuBarIconMode
-    public var singleIconWindow: QuotaWindowKind
+    public var menuBarDisplay: MenuBarDisplay
     public var showPercentageLabel: Bool
     public var pollIntervalSeconds: Int
     public var paceMethod: PaceMethod
@@ -11,8 +10,7 @@ public struct UsageSettings: Codable, Equatable, Sendable {
     public var agyPathOverride: String
 
     public init(
-        iconMode: MenuBarIconMode = .both,
-        singleIconWindow: QuotaWindowKind = .weekly,
+        menuBarDisplay: MenuBarDisplay = .both,
         showPercentageLabel: Bool = true,
         pollIntervalSeconds: Int = 60,
         paceMethod: PaceMethod = .cycleAverage,
@@ -20,8 +18,7 @@ public struct UsageSettings: Codable, Equatable, Sendable {
         redRemainingPercent: Double = 10.0,
         agyPathOverride: String = ""
     ) {
-        self.iconMode = iconMode
-        self.singleIconWindow = singleIconWindow
+        self.menuBarDisplay = menuBarDisplay
         self.showPercentageLabel = showPercentageLabel
         self.pollIntervalSeconds = pollIntervalSeconds
         self.paceMethod = paceMethod
@@ -34,7 +31,7 @@ public struct UsageSettings: Codable, Equatable, Sendable {
 }
 
 public enum UsageSettingsStore {
-    private static let key = "com.agyusagemenubar.settings.v1"
+    private static let key = "com.agyusagemenubar.settings.v2"
 
     public static func load(from defaults: UserDefaults = .standard) -> UsageSettings {
         guard let data = defaults.data(forKey: key),

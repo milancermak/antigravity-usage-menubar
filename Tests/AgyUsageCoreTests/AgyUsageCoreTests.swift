@@ -175,11 +175,36 @@ struct PaceCalculatorTests {
         #expect(!proj.willLastPastReset)
     }
 
-    @Test("Default settings use 1-minute poll interval")
+    @Test("Default settings use 1-minute poll interval and both windows")
     func defaultSettings() {
         let settings = UsageSettings()
         #expect(settings.pollIntervalSeconds == 60)
-        #expect(settings.iconMode == .both)
+        #expect(settings.menuBarDisplay == .both)
         #expect(settings.showPercentageLabel == true)
+    }
+
+    @Test("Hover sampling interpolates history and projects future burn")
+    func hoverSampling() {
+        let now = Date(timeIntervalSince1970: 1_795_595_000)
+        let reset = now.addingTimeInterval(2.5 * 3600) // 2.5h elapsed, 2.5h left
+        let reading = BucketReading(remainingFraction: 0.60, resetTime: reset)
+
+        let proj = PaceCalculator.project(
+            kind: .fiveHour,
+            reading: reading,
+            cycleSnapshots: [],
+            settings: UsageSettings(),
+            now: now
+        )
+
+        // Midpoint of past elapsed time (1.25h ago) -> linearly interpolated halfway from 100% to 60% = 80%.
+        let pastSample = proj.sample(at: now.addingTimeInterval(-1.25 * 3600))
+        #expect(!pastSample.isProjected)
+        #expect(abs(pastSample.remainingPercent - 80.0) < 0.5)
+
+        // Future halfway to reset (1.25h ahead) -> burns 16%/h -> 60% - 20% = 40%.
+        let futureSample = proj.sample(at: now.addingTimeInterval(1.25 * 3600))
+        #expect(futureSample.isProjected)
+        #expect(abs(futureSample.remainingPercent - 40.0) < 0.5)
     }
 }
