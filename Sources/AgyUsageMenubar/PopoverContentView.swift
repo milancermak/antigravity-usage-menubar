@@ -11,11 +11,10 @@ struct PopoverContentView: View {
 
             if viewModel.showingSettings {
                 settingsBody
+                footer
             } else {
                 overviewBody
             }
-
-            footer
         }
         .padding(14)
         .frame(width: 392)
