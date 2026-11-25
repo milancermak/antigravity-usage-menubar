@@ -78,10 +78,6 @@ final class StatusBarController: NSObject {
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseDown, .rightMouseUp])
             button.imagePosition = .imageLeading
-            if let cell = button.cell as? NSButtonCell {
-                cell.highlightsBy = []
-                cell.showsStateBy = []
-            }
         }
 
         viewModel.onStatusBarNeedsUpdate = { [weak self] in
@@ -164,6 +160,7 @@ final class StatusBarController: NSObject {
         }
 
         if panel.isVisible {
+            button.highlight(true)
             syncArrowToStatusItem()
             DispatchQueue.main.async { [weak self] in
                 self?.syncArrowToStatusItem()
@@ -247,6 +244,8 @@ final class StatusBarController: NSObject {
 
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        button.highlight(true)
+        syncButtonHighlightAfterTracking()
 
         installDismissMonitors()
 
@@ -286,10 +285,22 @@ final class StatusBarController: NSObject {
     private func closePanel() {
         guard panel.isVisible else { return }
         panel.orderOut(nil)
+        statusItem.button?.highlight(false)
+        syncButtonHighlightAfterTracking()
         lockedCardOriginX = nil
         lockedPanelTopY = nil
         viewModel.showingSettings = false
         removeDismissMonitors()
+    }
+
+    /// Re-applies the native status-bar highlight once AppKit exits mouse-tracking mode on mouseUp.
+    private func syncButtonHighlightAfterTracking() {
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.statusItem.button?.highlight(self.panel.isVisible)
+            }
+        }
     }
 
     private func isMouseInsideStatusItem() -> Bool {
