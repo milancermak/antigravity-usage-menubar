@@ -1,23 +1,8 @@
-# agy-usage-menubar
+# antigravity-usage-menubar
 
 Native macOS menu bar app for tracking and projecting your Google Antigravity **Gemini** 5-hour and weekly quota limits.
 
-## Features
-
-- **Color-coded fire icon(s)** in the macOS menu bar:
-  - **Green**: on track with comfortable headroom at reset
-  - **Amber**: borderline pace or getting low
-  - **Red**: on track to run dry before reset or critically low
-- **Configurable menu bar**:
-  - Show **5 hours**, **7 days**, or **Both**
-  - Optional `%` remaining label beside each flame
-- **Clean, interactive popover**:
-  - Progress bars with a linear-pace marker
-  - Hoverable remaining-over-time charts (scrub any past or future time to see actual/projected %)
-  - Clear reset countdown and depletion/headroom forecast
-- **Automatic cleanup**:
-  - Polls every 1 minute by default via the official `agy` CLI `statusLine` contract (no prompts sent, zero quota consumed)
-  - Stores only Gemini quota readings (no account PII) and automatically deletes expired snapshots after the weekly cycle resets
+![Gemini Quota menu bar popover](docs/screenshot.png)
 
 ## Requirements
 
